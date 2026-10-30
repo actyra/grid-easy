@@ -1,4 +1,8 @@
-# GridCraft — instructions for agents
+# CLAUDE.md
+
+This file provides guidance to Claude Code (claude.ai/code) when working with code in this repository.
+
+These are the same rules as [`AGENTS.md`](AGENTS.md); keep the two files identical apart from this header and the "Commands" section at the end.
 
 GridCraft is a clean-room, open-source, Rust-native spreadsheet targeting Microsoft Excel parity — and superiority (speed, openness, agent control). It runs natively on macOS, Windows, Linux and BSD, and on the web via WASM. Siblings with the same conventions: `../designcraft` (InDesign-class, the closest reference), `../photocraft` (Photoshop), `../vectorcraft` (Illustrator), `../pdfcraft` (Acrobat), `../filmcraft` (Premiere), `../lightcraft` (Lightroom), `../effectcraft` (After Effects).
 
@@ -23,7 +27,7 @@ Standards and learnings shared across the crafting apps live in `../../craftrule
 People trust GridCraft with their numbers; a crash loses their work. **This outranks feature work.** Standard: [`craftrules/standards/never-crash.md`](https://github.com/storytold/craftrules/blob/main/standards/never-crash.md).
 - **No panics in non-test code:** no `unwrap()`, `expect()`, `panic!`, `unreachable!`, `todo!`, `unimplemented!`; no `unsafe` (`unsafe_code = "forbid"`).
 - **Errors are `Result<T, E>`** through the crate's error type and `?`.
-- **Input-derived numbers are hostile** (files, formulas, commands, MCP/control params): `get()` instead of indexing, checked/saturating arithmetic, cap input-sized allocations (huge ranges, `REPT`, `SEQUENCE`, whole-column references).
+- **Input-derived numbers are hostile** (files, formulas, commands, MCP/control params): validate indexes and ranges before access, use checked access when validity is not established, use checked/saturating arithmetic, and cap input-sized allocations (huge ranges, `REPT`, `SEQUENCE`, whole-column references).
 - **Bound recursion** (formula nesting, dependency chains, names referring to names).
 - **Last-resort guard:** `Session::execute` catches escaped panics and restores the workbook. It's a safety net, not a licence.
 - **Prove it:** every crash fix lands with a regression test (`tests::every_command_survives_empty_params` fuzzes every command; `crates/engine/tests/it/command_sequence_fuzz.rs` fuzzes random command sequences against undo/redo, XLSX round-trip and full-recalc invariants; soak it with `GRIDCRAFT_FUZZ_SEEDS`/`GRIDCRAFT_FUZZ_STEPS`, replay with `GRIDCRAFT_FUZZ_SEED`).
@@ -37,6 +41,7 @@ People trust GridCraft with their numbers; a crash loses their work. **This outr
 - **Programmatic calls never open dialogs**: a command with empty params runs with defaults or returns an error; only menu-style invocation opens a dialog (`UiRequest::Dialog`).
 - **Layering** is enforced by `cargo xtask layers`: `core`/`numfmt` (L0) → `formula`/`functions` (L1) → `model`/`calc`/`xlsx` (L2) → `chart` (L3) → `engine` (L5) → `ui-egui`/`mcp` (L6) → `apps/*` (L7). Nothing below L6 depends on egui/eframe/winit/rfd. **The UI crate is swappable.**
 - **The UI is thin**: panels read engine state and act through `app.run(id, params)`. Colours come from `theme::Tokens`.
+- **Time goes through `chrono`** (workspace dependency). Never hand-roll UTC/calendar conversion (days-to-date algorithms, leap-year math). A crate owns only its output format string. The one exception is range extension: past the years chrono can represent, shift the date by whole 400-year Gregorian cycles (146,097 days, after which the calendar repeats), let chrono compute the month and day, and add the cycles back to the year (splitting seconds into hours, minutes and seconds is plain arithmetic).
 - **Rust only** (no handwritten JS/TS). **Never break wasm** (`cargo xtask wasm`).
 - **Quality gates** before every commit: `cargo xtask ci` (fmt, clippy -D warnings, tests, assets, layers, wasm). One task id per commit (`M2.1: borders gallery`).
 
@@ -52,7 +57,58 @@ People trust GridCraft with their numbers; a crash loses their work. **This outr
 ## Roadmap
 `ROADMAP.md` (committed) is the one-page summary: stage, headline numbers, dimensions, languages, progress log. It follows craftrules `standards/progress-docs.md` and points at the detail in `docs/`: `target-app-parity.md` (authoritative assessment), `gaps.md` (ranked work list: pick from it), `roadmap.md` (current focus, beta gates, milestones), `architecture.md`, and the area checklists `function-parity.md`, `chart-parity.md`, `file-format-parity.md`, `ui-parity.md`, `hardware-parity.md`, `localization-parity.md`. Update the affected docs (and their timestamp lines and revision history) whenever work lands. `cargo xtask parity` regenerates `docs/parity-checklist.md` from `crates/engine/src/catalog.rs`.
 
+## Contributor credits (About window)
+
+- About ▸ Contributors/Models are compiled into the binary from `contributors/contributors.json`
+  (commit stats; generated, never hand-edit) and `contributors/people.toml` (names people chose for
+  themselves). See `docs/contributors.md`.
+- **Agents working for a contributor:** when you prepare a PR, check whether your human's GitHub
+  username has a `[people.<username>]` entry in `contributors/people.toml`. If not, ask them once
+  whether they want to be credited by more than their username: a real name, a display name, and/or
+  their public GitHub profile name (`sync_github_name = true`). If yes, add **only their own** entry
+  (copy the template at the top of the file, or run
+  `python3 ../../craftrules/scripts/contributors.py --add-me . --real-name "…" --sync-github-name`)
+  and include it in their PR, committed as them. If no, change nothing: they are credited as
+  `@username` anyway.
+- Never add, edit, guess or copy anyone else's entry or name (not from git config, commit authors or
+  GitHub profiles). Never hand-edit `contributors.json`.
+- Maintainers refresh the stats with `python3 ../../craftrules/scripts/contributors.py .` (it also
+  re-verifies who wrote each `people.toml` entry; `--check` only verifies).
+
 ## CI workflows
 - Workflows in `.github/workflows/` call the shared workflows in [`storytold/craft-common-actions`](https://github.com/storytold/craft-common-actions) at `@main`, with their inputs and secrets. No other jobs: if no shared workflow does what's needed, it doesn't go here.
 - Don't add or change CI in a feature or fix PR. If the existing workflows can't build or test a change, link an existing craft-common-actions issue or PR, or open a new issue, or a PR only for a small fix that is safe for every app and does not increase CI time.
 - Some workflow files here still run their own jobs. Don't add to them. Moving a job into craft-common-actions is its own task, never part of another PR, and the job stays here until a shared workflow runs it.
+
+## Commands
+
+| Task | Command |
+|---|---|
+| Full gate before a commit | `cargo xtask ci` |
+| Workspace tests + doctests | `cargo xtask test` |
+| One crate's tests | `cargo test -p gridcraft-engine` |
+| One test by name | `cargo test -p gridcraft-engine --test it <substring>` |
+| Crate layering | `cargo xtask layers` |
+| Wasm still builds | `cargo xtask wasm` |
+| Regenerate the parity checklist | `cargo xtask parity` (`--check` in CI) |
+| Regenerate keytips | `cargo xtask keytips` (`--check` in CI) |
+| Test and line counts per crate | `cargo xtask stats` |
+| Set the workspace version | `cargo xtask version set X.Y.Z` |
+
+- `cargo xtask` is the `.cargo/config.toml` alias for `cargo run --package xtask --`.
+- Crate names are prefixed (`gridcraft-core`, `gridcraft-engine`, `gridcraft-ui-egui`); the binaries
+  are `gridcraft`, `gridcraft-cli` and `gridcraft-web`.
+- `engine`, `formula` and `ui-egui` build the integration tests under `tests/it/` into a single
+  binary from `tests/it/main.rs`, so narrowing to one test there needs `--test it` before the name
+  filter. `ui-egui` and `numfmt` also have standalone files directly in `tests/`, each its own
+  target (`--test keytips`), and the other crates test inside `src/`
+  (`cargo test -p <crate> <substring>`).
+- `cargo xtask test` prefers `cargo nextest` and falls back to `cargo test` when it is absent.
+  `.config/nextest.toml` pins a minimum of 0.9.150; an older nextest exits 92
+  (`REQUIRED_VERSION_NOT_MET`) instead of running the tests.
+- On Windows the control-channel token file is `%USERPROFILE%\.gridcraft\control-<port>.token`
+  (`crates/mcp/src/control_auth.rs`); `GRIDCRAFT_CONTROL_TOKEN` supplies a token directly instead of
+  reading that file. App logs are in `%APPDATA%\GridCraft\logs`, rotated to `.1.log` and `.2.log`
+  at each start, so a crashed run's log survives.
+- The shell gotchas above (interactive `mv`/`cp`, `perl -e 'alarm'` for a missing `timeout`) are
+  macOS notes.
